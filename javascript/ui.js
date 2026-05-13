@@ -420,7 +420,7 @@ onOptionsChanged(function () {
     if (elem && elem.textContent != shorthash) {
         elem.textContent = shorthash;
         elem.title = sd_checkpoint_hash;
-        elem.href = "https://civitai.com/search/models?query=" + sd_checkpoint_hash;
+        elem.href = "https://civitai.red/search/models?query=" + sd_checkpoint_hash;
     }
 });
 

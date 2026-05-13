@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep -l \"read_metadata_from_safetensors\\\\|find_embedded_preview\\\\|find_description\")",
+      "Bash(dir \"c:\\\\Users\\\\Clagt\\\\Documents\\\\sd-webui-forge-classic\\\\extensions-builtin\")",
+      "Bash(findstr \"lora\\\\|Lora\")"
+    ]
+  }
+}
