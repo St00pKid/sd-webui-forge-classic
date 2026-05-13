@@ -22,7 +22,7 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
 
 <br>
 
-## Features [Apr.]
+## Features [May.]
 > Most base features of the original [Automatic1111 Webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui) should still function
 
 #### New Features
@@ -64,8 +64,9 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
 > [!Note]
 > To be detected as a **Kontext** model, the model must include "`kontext`" in its path *(**e.g.** file name or folder name)*
 
-- [X] Support Multi-Image Inputs for **Qwen-Image-Edit** and **Flux-Kontext**
-    - via `ImageStitch Integrated`
+- Implement `ImageStitch Integrated`
+    - [X] support Multi-Image Inputs for `flux.2-klein` / `flux-kontext` / `qwen-image-edit`
+    - [X] support FirstLastFrameToVideo for `wan 2.2`
 - [X] Support [Nunchaku](https://github.com/nunchaku-tech/nunchaku) (`SVDQ`) Models
     - `flux-dev`, `flux-krea`, `flux-kontext`, `qwen-image`, `qwen-image-edit`, `z-image-turbo`
     - only `Flux` and `Qwen` support LoRA currently
@@ -75,6 +76,7 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
 - [X] Support [Chroma1-HD](https://huggingface.co/lodestones/Chroma1-HD)
 - [X] Support **MixedPrecision** Models
     - `fp4mixed` / `fp8mixed` / `mxfp8` / `nvfp4` / `fp8_scaled`
+- [X] Support [Flux.2-Small-Decoder](https://huggingface.co/black-forest-labs/FLUX.2-small-decoder/blob/main/full_encoder_small_decoder.safetensors) & [Qwen2D VAE](https://huggingface.co/Anzhc/Qwen2D-VAE/blob/main/Qwen2D_VAE.safetensors)
 
 <br>
 
@@ -118,6 +120,8 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
 - [X] Implement tiled `Conv2d` for VAE
     - reduce memory usage; reduce speed
     - see [Commandline](#by-neo)
+- [X] Implement full precision calculation for `Mask blur` blending
+    - enable in **Settings/img2img**
 - [X] Support TAESD live preview for all models
 - [X] Support loading upscalers in `half` precision
     - speed up; reduce quality
@@ -127,7 +131,9 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
 - [X] Support (short) videos in **Extras** tab
 - [X] Add support for `.avif`, `.heif`, and `.jxl` image formats
 - [X] Automatically determine the optimal row count for `X/Y/Z Plot`
-- [X] Support **Union** ControlNet
+- [X] Update **LLLite** Controlnet
+    - [SDXL](https://huggingface.co/kohya-ss/controlnet-lllite/tree/main) / [Anima](https://huggingface.co/kohya-ss/Anima-LLLite/tree/main)
+- [X] Support **Union** Controlnet
     - [SDXL](https://huggingface.co/xinsir/controlnet-union-sdxl-1.0) / [Chenkin](https://civitai.com/models/2527960/chenkin-unicontrol-xl)
 
 #### Removed Features
@@ -139,9 +145,10 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
 - [X] CLIP Interrogator
 - [X] Deepbooru Interrogator
 - [X] Textual Inversion Training
-- [X] Most built-in Extensions
+- [X] Some built-in Extensions
 - [X] Some built-in Scripts
 - [X] Some Samplers & Schedulers
+- [X] Some Compatibility Settings
 - [X] Stealth Infotext
 
 #### Optimizations
@@ -150,6 +157,7 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
 - [X] No longer `git` `clone` any repository on fresh install
 - [X] No longer install `open-clip`
 - [X] Fix memory leak when switching checkpoints
+- [X] Restore the ability to drag-and-drop images onto `gr.Image` that already contains image
 - [X] Speed up launch time
 - [X] Improve timer logs
 - [X] Remove unused `cmd_args`
@@ -158,6 +166,7 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
 - [X] Remove legacy codes
 - [X] Fix some typos
 - [X] Fix automatic `Tiled VAE` fallback
+- [X] Fix `Tiling` for SD1 and SDXL
 - [X] Pad conditioning for SDXL
 - [X] Remove duplicated upscaler codes
 - [X] Update [spandrel](https://github.com/chaiNNer-org/spandrel)
@@ -233,10 +242,12 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
 
 #### by. Neo
 
-- Add the following flags to slightly improve the model loading; in certain situations, they may cause `OutOfMemory` errors instead...
-    - `--cuda-malloc`
-    - `--cuda-stream`
-    - `--pin-shared-memory`
+- `--cuda-malloc`: Improve memory allocation
+- `--cuda-stream`: Enable async weight offloading
+- `--pin-shared-memory`: Improve RAM utilization
+- `--expandable-segments`: Enable experimental PyTorch allocator *(may prevent `OutOfMemory` errors on certain platforms)*
+
+<br>
 
 - `--uv`: Replace the `python -m pip` calls with `uv pip` to massively speed up package installation
     - requires **uv** to be installed first *(see [Installation](#installation))*
@@ -364,7 +375,8 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
 - **Issues** regarding **AMD** GPU will simply be ignored
 - **Issues** running non-official models will simply be ignored
     - do not just randomly download every single finetune/quant you find
-    - check the uploader and download count first
+- **Issues** about 3rd-party Extensions will simply be ignored
+    - extension should support the UI, not the other way around
 - **Issues** caused by [StabilityMatrix](https://github.com/LykosAI/StabilityMatrix) will simply be ignored
     - only open an Issue if you can reproduce it on a clean install following the official [Installation](#installation) instruction
 
@@ -375,7 +387,7 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
 <hr>
 
 > [!Tip]
-> Check out the [Wiki](https://github.com/Haoming02/sd-webui-forge-classic/wiki)~
+> Check out the [Wiki](https://github.com/Haoming02/sd-webui-forge-classic/wiki) & [FAQ](https://github.com/Haoming02/sd-webui-forge-classic/issues/414)
 
 <br>
 

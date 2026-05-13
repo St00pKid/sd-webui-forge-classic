@@ -5,6 +5,7 @@ from functools import partial
 from typing import Callable
 
 import torch
+import yaml
 from transformers.modeling_utils import no_init_weights
 
 import backend.args
@@ -89,9 +90,16 @@ def load_huggingface_component(guess, component_name, lib_name, cls_name, repo_p
             return model
         if cls_name in ["AutoencoderKLWan", "AutoencoderKLQwenImage"]:
             assert isinstance(state_dict, dict) and len(state_dict) > 16, "You do not have VAE state dict!"
-            from backend.nn.wan_vae import WanVAE
 
-            config = WanVAE.load_config(config_path)
+            if "post_quant_conv.weight" in state_dict:  # 2D
+                from backend.nn.wan_vae_2d import Qwen2DVAE as WanVAE
+
+                config = {}
+
+            else:
+                from backend.nn.wan_vae import WanVAE
+
+                config = WanVAE.load_config(config_path)
 
             with no_init_weights():
                 with using_forge_operations(device=memory_management.cpu, dtype=memory_management.vae_dtype(), bnb_dtype="vae"):
@@ -371,12 +379,8 @@ def load_huggingface_component(guess, component_name, lib_name, cls_name, repo_p
 
             override_dtype = backend.args.dynamic_args.forge_unet_storage_dtype
             if override_dtype is torch.int8:
-                if state_dict_dtype is torch.bfloat16:
-                    override_dtype = torch.bfloat16
-                    try_int8 = True
-                else:
-                    override_dtype = None
-                    logger.warning("int8 only supports bfloat16 models...")
+                override_dtype = torch.bfloat16
+                try_int8 = True
 
             if guess.nunchaku:
                 storage_dtype = torch.bfloat16
@@ -424,6 +428,7 @@ def load_huggingface_component(guess, component_name, lib_name, cls_name, repo_p
                     extra_dtype = str(guess.__class__.__name__)
                 elif quant_config is not None:
                     extra_dtype = quant_config
+                    to_args.clear()
                 else:
                     extra_dtype = None
 
@@ -483,6 +488,7 @@ def replace_state_dict(sd: dict[str, torch.Tensor], asd: dict[str, torch.Tensor]
 
     ##  identify model type
     flux_test_key = "model.diffusion_model.double_blocks.0.img_attn.norm.key_norm.scale"
+    flux_test_key_weight = "model.diffusion_model.double_blocks.0.img_attn.norm.key_norm.weight"
     svdq_test_key = "model.diffusion_model.single_transformer_blocks.0.mlp_fc1.qweight"
     legacy_test_key = "model.diffusion_model.input_blocks.4.1.transformer_blocks.0.attn2.to_k.weight"
 
@@ -495,7 +501,7 @@ def replace_state_dict(sd: dict[str, torch.Tensor], asd: dict[str, torch.Tensor]
                 model_type = "xlrf"  # sdxl refiner model
             case 2048:
                 model_type = "sdxl"
-    elif flux_test_key in sd or svdq_test_key in sd:
+    elif flux_test_key in sd or flux_test_key_weight in sd or svdq_test_key in sd:
         model_type = "flux"
 
     ##  prefixes used by various model types for CLIP-L
@@ -793,18 +799,19 @@ def split_state_dict(path: os.PathLike, additional_state_dicts: list[os.PathLike
 def forge_loader(sd: os.PathLike, additional_state_dicts: list[os.PathLike] = None):
     try:
         state_dicts, estimated_config = split_state_dict(sd, additional_state_dicts=additional_state_dicts)
-    except Exception:
-        raise ValueError("Failed to recognize model type!") from None
+    except AttributeError:
+        raise ValueError("Failed to recognize model...") from None
 
     repo_name = estimated_config.huggingface_repo
-    if "xl" in repo_name and "rectified" in str(sd).lower():
-        estimated_config.sampling_settings["RF"] = True
 
     backend.args.dynamic_args.kontext = "kontext" in str(sd).lower()
     backend.args.dynamic_args.edit = "qwen" in str(sd).lower() and "edit" in str(sd).lower()
     backend.args.dynamic_args.nunchaku = getattr(estimated_config, "nunchaku", False)
     backend.args.dynamic_args.klein = "klein" in repo_name
     backend.args.dynamic_args.wan = "Wan" in repo_name
+
+    if "xl" in repo_name and "rectified" in str(sd).lower():
+        estimated_config.sampling_settings["RF"] = True
 
     if getattr(estimated_config, "nunchaku", False):
         estimated_config.unet_config["filename"] = str(sd)
@@ -827,47 +834,36 @@ def forge_loader(sd: os.PathLike, additional_state_dicts: list[os.PathLike] = No
 
     del state_dicts
 
-    yaml_config = None
-    yaml_config_prediction_type = None
+    config_filename = os.path.splitext(sd)[0] + ".yaml"
+    yaml_pred_type = None
 
-    try:
-        from pathlib import Path
+    if os.path.isfile(config_filename):
+        with open(config_filename, "r") as stream:
+            yaml_config: dict[str, dict] = yaml.safe_load(stream)
 
-        import yaml
+        _params: dict[str, dict] = yaml_config.get("model", {}).get("params", {})
+        _pred_type: str = _params.get("parameterization", "") or _params.get("denoiser_config", {}).get("params", {}).get("scaling_config", {}).get("target", "")
 
-        config_filename = os.path.splitext(sd)[0] + ".yaml"
-        if Path(config_filename).is_file():
-            with open(config_filename, "r") as stream:
-                yaml_config = yaml.safe_load(stream)
-    except ImportError:
-        pass
+        if _pred_type == "v" or _pred_type.endswith(".VScaling"):
+            yaml_pred_type = "v_prediction"
+        else:
+            yaml_pred_type = None
 
-    prediction_types = {
+    PRED_TYPES = {
         "EPS": "epsilon",
         "V_PREDICTION": "v_prediction",
         "FLUX": "const",
         "FLOW": "const",
     }
 
-    has_prediction_type = "scheduler" in huggingface_components and hasattr(huggingface_components["scheduler"], "config") and "prediction_type" in huggingface_components["scheduler"].config
-
-    if yaml_config is not None:
-        yaml_config_prediction_type: str = yaml_config.get("model", {}).get("params", {}).get("parameterization", "") or yaml_config.get("model", {}).get("params", {}).get("denoiser_config", {}).get("params", {}).get("scaling_config", {}).get("target", "")
-        if yaml_config_prediction_type == "v" or yaml_config_prediction_type.endswith(".VScaling"):
-            yaml_config_prediction_type = "v_prediction"
-        else:
-            # Use estimated prediction config if no suitable prediction type found
-            yaml_config_prediction_type = ""
-
-    if has_prediction_type:
-        if yaml_config_prediction_type:
-            huggingface_components["scheduler"].config.prediction_type = yaml_config_prediction_type
-        else:
-            huggingface_components["scheduler"].config.prediction_type = prediction_types.get(estimated_config.model_type.name, huggingface_components["scheduler"].config.prediction_type)
+    if "prediction_type" in getattr(huggingface_components.get("scheduler", None), "config", {}):
+        if yaml_pred_type:
+            huggingface_components["scheduler"].config.prediction_type = yaml_pred_type
+        elif estimated_config.model_type.name in PRED_TYPES:
+            huggingface_components["scheduler"].config.prediction_type = PRED_TYPES[estimated_config.model_type.name]
 
     for M in possible_models:
         if any(type(estimated_config) is x for x in M.matched_guesses):
             return M(estimated_config=estimated_config, huggingface_components=huggingface_components)
 
-    logger.error("Failed to recognize model... (check README for supported models)")
-    return None
+    raise ValueError("Failed to recognize model...") from None
