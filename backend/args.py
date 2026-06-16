@@ -103,6 +103,7 @@ parser.add_argument("--mmap-torch-files", action="store_true", help="Use mmap wh
 parser.add_argument("--disable-mmap", action="store_true", help="Don't use mmap when loading safetensors")
 
 parser.add_argument("--tiled-conv2d", type=int, default=0, metavar="TILE_SIZE", choices=[0, 64, 128, 256, 512], help="reduce VAE memory usage ; increase processing time")
+parser.add_argument("--enable-triton-backend", action="store_true", help="Enable the use of Triton backend in comfy-kitchen")
 
 
 class SageAttentionFuncs(enum.Enum):
@@ -169,3 +170,5 @@ class dynamic_args(metaclass=_DynamicArgsMeta):
     """Appending Reference Latent(s) (by. ImageStitch)"""
     ops: str = None
     """Operations for the Diffusion Model"""
+    last_extra_generation_params: dict[str, str] = {}
+    """Infotext captured during `get_learned_conditioning`"""
